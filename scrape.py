@@ -1,18 +1,21 @@
 # scrapes WhoScored.com for event data
 # https://github.com/Ali-Hasan-Khan/Scrape-Whoscored-Event-Data/blob/main/tutorial.ipynb
 
+from typing import Dict
 from selenium import webdriver
 import json
 import re
 from collections import OrderedDict
 import pandas as pd
 import numpy as np
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 def getMatchData(driver, url, display=True, close_window=True):
     driver.get(url)
 
     # get script data from page source
+    ###script_content = driver.find_element_by_xpath('//*[@id="layout-wrapper"]/div[3]/script[1]').get_attribute('innerHTML')
     script_content = driver.find_element_by_xpath('//*[@id="layout-wrapper"]/script[1]').get_attribute('innerHTML')
 
 
@@ -23,15 +26,17 @@ def getMatchData(driver, url, display=True, close_window=True):
 
     # this will give script content in list form 
     script_content_list = list(filter(None, script_content.strip().split(',            ')))
-    metadata = script_content_list.pop(1) 
+    metadata = script_content_list.pop(1)
 
 
     # string format to json format
     match_data = json.loads(metadata[metadata.index('{'):])
+    ###match_data = {}
     keys = [item[:item.index(':')].strip() for item in script_content_list]
     values = [item[item.index(':')+1:].strip() for item in script_content_list]
     for key,val in zip(keys, values):
         match_data[key] = json.loads(val)
+        ###match_data[key] = val
 
 
     # get other details about the match
@@ -72,14 +77,33 @@ def createMatchesDF(data):
                       'score', 'home', 'away', 'referee']
     matches_df = pd.DataFrame(columns=columns_req_ls)
     if type(data) == dict:
+        # TODO: 'matches_dict' only finds 'matchId' from 'columns_req_ls'
+        # TODO: WhoScored possibly changed their API naming
+        # TODO: search through 'script_content_list' for new names
         matches_dict = dict([(key,val) for key,val in data.items() if key in columns_req_ls])
-        matches_df = matches_df.append(matches_dict, ignore_index=True)
+        
+        # new solution .concat
+        matches_dict_to_df = pd.DataFrame([matches_dict])
+        matches_df = pd.concat([matches_dict_to_df], axis=0, ignore_index=True)
+        
+        # original solution .append
+        # matches_df = matches_df.append(matches_dict, ignore_index=True)
     else:
         for match in data:
             matches_dict = dict([(key,val) for key,val in match.items() if key in columns_req_ls])
-            matches_df = matches_df.append(matches_dict, ignore_index=True)
+        matches_df = pd.DataFrame.from_dict(matches_dict)
+        
+        # new solution .concat
+        matches_dict_to_df = pd.DataFrame([matches_dict])
+        matches_df = pd.concat([matches_dict_to_df], axis=0, ignore_index=True)
+        
+        # original solution .append
+        # matches_df = matches_df.append(matches_dict, ignore_index=True)
     
-    matches_df = matches_df.set_index('matchId')        
+    matches_df = matches_df.set_index('matchId')
+    print("#C -->\n", matches_df.shape)
+    print("#B -->\n", matches_df.columns)
+    print("#1 -->\n", matches_df)
     return matches_df
 
 
@@ -169,19 +193,26 @@ def createEventsDF(data):
                 events_df['situation'].loc[i] = 'OpenPlay'   
 
     # adding other event types columns
+    # TODO: this loop is causing a PerformanceWarning: DataFrame is highly fragmented
+    # TODO: fix this
     event_types = list(data['matchCentreEventTypeJson'].keys())
     for event_type in event_types:
         events_df[event_type] = pd.Series([event_type in row for row in list(events_df['satisfiedEventsTypes'])])         
 
+    print("\n---> events_df.head <---\n", events_df.head)
     return events_df
 
 
 # --------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
-    driver = webdriver.Chrome('chromedriver.exe')
+    # new solution
+    driver = webdriver.Chrome(ChromeDriverManager().install())
+    
+    # old solution
+    # driver = webdriver.Chrome('/chromedriver.exe')
     
 # whoscored match centre url of the required match (Example: Barcelona vs Sevilla)
-url = "https://www.whoscored.com/Matches/1491995/Live/Spain-LaLiga-2020-2021-Barcelona-Sevilla"
+url = "https://www.whoscored.com/Matches/1640710/Live/England-Premier-League-2022-2023-Manchester-City-Crystal-Palace"
 match_data = getMatchData(driver, url, close_window=True)
 
 # Match dataframe containing info about the match
@@ -196,3 +227,4 @@ matchId = match_data['matchId']
 # Information about respective teams as dictionary
 home_data = matches_df['home'][matchId]
 away_data = matches_df['away'][matchId]
+print("\n---> I MADE IT!! <---\n")
